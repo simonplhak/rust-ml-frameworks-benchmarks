@@ -1,0 +1,23 @@
+[package]
+name = "burn-example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+burn = { version = "0.20", features = ["train", "dataset"] }
+burn-fusion = "0.20"
+common = { path = "../common" }
+criterion = "0.8.2"
+
+
+[features]
+ndarray = ["burn/ndarray"]
+ndarray-blas-accelerate = ["burn/ndarray", "burn/accelerate"]
+ndarray-blas-netlib = ["burn/ndarray", "burn/blas-netlib"]
+ndarray-blas-openblas = ["burn/ndarray", "burn/openblas"]
+tch-cpu = ["burn/tch"]
+
+
+[[bench]]
+name = "model"
+harness = false

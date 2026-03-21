@@ -1,0 +1,40 @@
+name: Run ML Benchmarks
+
+on:
+    workflow_dispatch:
+
+jobs:
+    benchmarks:
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Set up Python 3.12
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Install UV package manager
+              uses: astral-sh/setup-uv@v3
+              with:
+                  enable-cache: true
+
+            - name: Sync Python dependencies
+              run: uv sync
+
+            - name: Run benchmarks
+              run: uv run python run_benchmarks.py
+
+            - name: Upload benchmark results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: benchmark-results
+                  path: results/*/
+                  retention-days: 1

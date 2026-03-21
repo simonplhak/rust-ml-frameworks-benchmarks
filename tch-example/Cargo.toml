@@ -1,0 +1,13 @@
+[package]
+name = "tch-example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tch = { version = "0.22.0" }
+common = { path = "../common" }
+criterion = "0.8.2"
+
+[[bench]]
+name = "model"
+harness = false

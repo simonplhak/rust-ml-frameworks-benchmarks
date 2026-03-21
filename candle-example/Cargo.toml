@@ -1,0 +1,14 @@
+[package]
+name = "candle-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.9.1" }
+candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.9.1" }
+common = { path = "../common" }
+criterion = "0.8.2"
+
+[[bench]]
+name = "model"
+harness = false
