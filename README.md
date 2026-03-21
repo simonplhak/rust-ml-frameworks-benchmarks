@@ -33,6 +33,9 @@ This suite runs **4 distinct experiments** to comprehensively evaluate framework
 **Configuration:**
 
 - Framework: Each framework's `main.rs` compiled with `cargo run --release`
+  - **Burn:** Compiled with `--features ndarray` (pure Rust CPU backend)
+  - **TCH-rs:** Default features (PyTorch C++ bindings)
+  - **Candle:** Default features (HuggingFace native Rust)
 - Task: Train a 2-layer neural network (784→256→10) on MNIST
 - Epochs: 1 to 5 (incremental - each run trains from scratch for N epochs)
 - Batch size: 256

@@ -12,17 +12,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-import re
+import traceback
 
 
 # Framework configurations
 FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
 RESULT_DIR = Path("results")
-CRITERION_BENCHMARKS = ["predict_single", "predict_many", "train_batch"]
+CRITERION_BENCHMARKS = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
 
 def run_command(cmd: list, cwd: Optional[Path] = None) -> str:
-    """Execute shell command and return output. Abort on failure."""
+    """Execute shell command and return output. Print output to console. Abort on failure."""
     try:
         result = subprocess.run(
             cmd,
@@ -31,10 +31,15 @@ def run_command(cmd: list, cwd: Optional[Path] = None) -> str:
             text=True,
             timeout=600,
         )
+        # Print the output to console
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+
         if result.returncode != 0:
             error_msg = f"Command failed: {' '.join(cmd)}\n"
-            error_msg += f"stdout: {result.stdout}\n"
-            error_msg += f"stderr: {result.stderr}"
+            error_msg += f"Return code: {result.returncode}"
             raise RuntimeError(error_msg)
         return result.stdout
     except subprocess.TimeoutExpired as e:
@@ -47,10 +52,10 @@ def run_command(cmd: list, cwd: Optional[Path] = None) -> str:
 
 def find_csv_file(framework_dir: Path) -> Optional[Path]:
     """Find convergence CSV file in framework directory."""
-    csv_files = list(framework_dir.glob("convergence_*.csv"))
-    if not csv_files:
-        return None
-    return csv_files[-1]  # Return latest if multiple exist
+    csv_file = framework_dir / "convergence_results.csv"
+    if csv_file.exists():
+        return csv_file
+    raise Exception(f"CSV file not found in {framework_dir}")
 
 
 def parse_convergence_csv(csv_path: Path) -> Dict[str, Any]:
@@ -72,8 +77,8 @@ def parse_convergence_csv(csv_path: Path) -> Dict[str, Any]:
                     convergence_data.append(
                         {
                             "epoch": int(parts[0]),
-                            "training_time_ms": float(parts[1]),
-                            "accuracy": float(parts[2]),
+                            "accuracy": float(parts[1]),
+                            "training_time_ms": float(parts[2]),
                         }
                     )
 
@@ -160,37 +165,73 @@ def parse_criterion_estimates(
 
 def parse_criterion_results(framework_dir: Path, framework_name: str) -> Dict[str, Any]:
     """Parse all Criterion benchmark results for a framework."""
-    criterion_dir = framework_dir / "target" / "criterion"
+    criterion_dir = Path("target") / "criterion"
 
     if not criterion_dir.exists():
         raise RuntimeError(f"Criterion directory not found: {criterion_dir}")
 
     benchmark_results = {}
+    framework_short = framework_name.split("-")[0]
 
     for bench_name in CRITERION_BENCHMARKS:
-        bench_dir = criterion_dir / bench_name
-        estimates_file = bench_dir / "new" / "estimates.json"
+        bench_dir = criterion_dir / bench_name / framework_short
 
-        if not estimates_file.exists():
-            raise RuntimeError(
-                f"Criterion estimates.json not found for {bench_name}: {estimates_file}"
-            )
+        if not bench_dir.exists():
+            raise RuntimeError(f"Benchmark directory not found: {bench_dir}")
 
-        try:
-            with open(estimates_file, "r") as f:
-                estimates = json.load(f)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to parse Criterion estimates for {bench_name}: {str(e)}"
-            ) from e
+        if bench_name == "Train_Batch_Step":
+            # Parametrized benchmark with batch sizes
+            batch_sizes = [32, 64, 128]
+            benchmark_results[bench_name] = {}
 
-        unit = get_criterion_unit(estimates)
-        metrics = parse_criterion_estimates(estimates, unit)
+            for batch_size in batch_sizes:
+                param_dir = bench_dir / str(batch_size)
+                estimates_file = param_dir / "new" / "estimates.json"
 
-        benchmark_results[bench_name] = {
-            "original_unit": unit,
-            "metrics": metrics,
-        }
+                if not estimates_file.exists():
+                    raise RuntimeError(
+                        f"Criterion estimates.json not found for {bench_name} (batch_size={batch_size}): {estimates_file}"
+                    )
+
+                try:
+                    with open(estimates_file, "r") as f:
+                        estimates = json.load(f)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to parse Criterion estimates for {bench_name} (batch_size={batch_size}): {str(e)}"
+                    ) from e
+
+                unit = get_criterion_unit(estimates)
+                metrics = parse_criterion_estimates(estimates, unit)
+
+                benchmark_results[bench_name][str(batch_size)] = {
+                    "original_unit": unit,
+                    "metrics": metrics,
+                }
+        else:
+            # Non-parametrized benchmarks
+            estimates_file = bench_dir / "latency" / "new" / "estimates.json"
+
+            if not estimates_file.exists():
+                raise RuntimeError(
+                    f"Criterion estimates.json not found for {bench_name}: {estimates_file}"
+                )
+
+            try:
+                with open(estimates_file, "r") as f:
+                    estimates = json.load(f)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to parse Criterion estimates for {bench_name}: {str(e)}"
+                ) from e
+
+            unit = get_criterion_unit(estimates)
+            metrics = parse_criterion_estimates(estimates, unit)
+
+            benchmark_results[bench_name] = {
+                "original_unit": unit,
+                "metrics": metrics,
+            }
 
     return benchmark_results
 
@@ -209,7 +250,12 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     # Step 1: Run binary (cargo run --release) to generate convergence CSV
     print(f"[1/2] Running {framework_name} binary...")
     try:
-        run_command(["cargo", "run", "--release"], cwd=framework_dir)
+        csv_output_path = framework_dir / "convergence_results.csv"
+        cmd = ["cargo", "run", "--release", "-p", framework_name]
+        if framework_name == "burn-example":
+            cmd.extend(["--features", "ndarray"])
+        cmd.extend(["--", "--output-csv", str(csv_output_path)])
+        run_command(cmd)
         print(f"✓ {framework_name} binary completed")
     except RuntimeError as e:
         print(f"✗ Failed to run {framework_name} binary")
@@ -218,8 +264,6 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     # Step 2: Parse convergence CSV
     print(f"[2/3] Parsing convergence data...")
     csv_file = find_csv_file(framework_dir)
-    if csv_file is None:
-        raise RuntimeError(f"No convergence CSV found in {framework_dir}")
 
     try:
         convergence_data = parse_convergence_csv(csv_file)
@@ -234,7 +278,10 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     # Step 3: Run benchmarks (cargo bench)
     print(f"[3/3] Running Criterion benchmarks...")
     try:
-        run_command(["cargo", "bench"], cwd=framework_dir)
+        cmd = ["cargo", "bench", "-p", framework_name]
+        if framework_name == "burn-example":
+            cmd.extend(["--features", "ndarray"])
+        run_command(cmd)
         print(f"✓ Criterion benchmarks completed")
     except RuntimeError as e:
         print(f"✗ Failed to run Criterion benchmarks")
@@ -317,6 +364,8 @@ def main():
         except RuntimeError as e:
             print(f"\n✗ FATAL ERROR in {framework}:")
             print(f"  {str(e)}")
+            print("\n✗ Full traceback:")
+            traceback.print_exc()
             print("\n✗ Aborting entire benchmark run due to framework failure.")
             sys.exit(1)
 

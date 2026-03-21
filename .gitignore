@@ -1,3 +1,6 @@
 target/
 .venv/
 .vscode
+results/
+visualizations/
+convergence_results.csv

@@ -18,7 +18,8 @@ from plotly.subplots import make_subplots
 
 RESULT_DIR = Path("results")
 OUTPUT_DIR = Path("visualizations")
-FRAMEWORKS = ["burn", "tch", "candle"]
+FRAMEWORKS = ["burn"]
+# FRAMEWORKS = ["burn", "tch", "candle"]
 FRAMEWORK_COLORS = {
     "burn": "#E91E63",
     "tch": "#2196F3",
@@ -105,45 +106,38 @@ def plot_convergence_curves(results: Dict[str, Any]) -> go.Figure:
 
 def plot_inference_latency(results: Dict[str, Any]) -> go.Figure:
     """Create inference latency comparison (predict_single and predict_many)."""
-    benchmarks = ["predict_single", "predict_many"]
+    benchmarks = ["Predict_Single", "Predict_Many"]
     frameworks_list = list(results.keys())
-
-    # Extract latency data
-    data_to_plot = {bench: {} for bench in benchmarks}
-
-    for framework, data in results.items():
-        for bench in benchmarks:
-            if bench in data["benchmarks"]:
-                metrics = data["benchmarks"][bench]["metrics"]
-                if "mean" in metrics:
-                    data_to_plot[bench][framework] = metrics["mean"]["estimate_ms"]
 
     # Create grouped bar chart
     fig = go.Figure()
 
-    for i, benchmark in enumerate(benchmarks):
-        x_pos = np.arange(len(frameworks_list)) + (i * 0.35)
-        latencies = [data_to_plot[benchmark].get(f, 0) for f in frameworks_list]
+    for framework in frameworks_list:
+        data = results[framework]
+        latencies_by_bench = []
+
+        for bench in benchmarks:
+            if bench in data["benchmarks"]:
+                metrics = data["benchmarks"][bench]["metrics"]
+                if "mean" in metrics:
+                    latencies_by_bench.append(metrics["mean"]["estimate_ms"])
+                else:
+                    latencies_by_bench.append(0)
+            else:
+                latencies_by_bench.append(0)
 
         fig.add_trace(
             go.Bar(
-                x=frameworks_list,
-                y=latencies,
-                name=benchmark.replace("_", " ").title(),
-                marker=dict(
-                    color=(
-                        FRAMEWORK_COLORS[frameworks_list[0]]
-                        if i == 0
-                        else FRAMEWORK_COLORS[frameworks_list[1]]
-                    )
-                ),
-                opacity=0.7 + (i * 0.15),
+                x=benchmarks,
+                y=latencies_by_bench,
+                name=framework.upper(),
+                marker=dict(color=FRAMEWORK_COLORS[framework]),
             )
         )
 
     fig.update_layout(
         title="Inference Latency Comparison",
-        xaxis_title="Framework",
+        xaxis_title="Benchmark",
         yaxis_title="Latency (ms)",
         barmode="group",
         hovermode="x unified",
@@ -160,34 +154,43 @@ def plot_training_throughput(results: Dict[str, Any]) -> go.Figure:
     """Create training throughput comparison across batch sizes."""
     fig = go.Figure()
 
-    # Note: train_batch benchmark data contains metrics per batch size
-    # This is a placeholder - actual implementation depends on how
-    # train_batch data is structured in Criterion output
-
     batch_sizes = [32, 64, 128]
-    frameworks_list = list(results.keys())
 
     for framework, data in results.items():
-        if "train_batch" in data["benchmarks"]:
-            metrics = data["benchmarks"]["train_batch"]["metrics"]
-            if "mean" in metrics:
-                latency_ms = metrics["mean"]["estimate_ms"]
-                # Calculate throughput as samples/second
-                # Assuming each batch is one training step
-                throughput = 1000.0 / latency_ms if latency_ms > 0 else 0
+        if "Train_Batch_Step" in data["benchmarks"]:
+            train_batch_data = data["benchmarks"]["Train_Batch_Step"]
+            throughputs = []
 
-                fig.add_trace(
-                    go.Bar(
-                        x=["Train Batch"],
-                        y=[throughput],
-                        name=framework.upper(),
-                        marker=dict(color=FRAMEWORK_COLORS[framework]),
-                    )
+            for batch_size in batch_sizes:
+                batch_key = str(batch_size)
+                if batch_key in train_batch_data:
+                    metrics = train_batch_data[batch_key]["metrics"]
+                    if "mean" in metrics:
+                        latency_ms = metrics["mean"]["estimate_ms"]
+                        # Calculate throughput as samples/second
+                        throughput = (
+                            (batch_size * 1000.0) / latency_ms if latency_ms > 0 else 0
+                        )
+                        throughputs.append(throughput)
+                    else:
+                        throughputs.append(0)
+                else:
+                    throughputs.append(0)
+
+            fig.add_trace(
+                go.Bar(
+                    x=[str(bs) for bs in batch_sizes],
+                    y=throughputs,
+                    name=framework.upper(),
+                    marker=dict(color=FRAMEWORK_COLORS[framework]),
                 )
+            )
 
     fig.update_layout(
-        title="Training Throughput (Samples/Second)",
+        title="Training Throughput vs. Batch Size",
+        xaxis_title="Batch Size",
         yaxis_title="Throughput (samples/sec)",
+        barmode="group",
         hovermode="x unified",
         template="plotly_white",
         font=dict(size=12),
@@ -202,7 +205,7 @@ def plot_latency_distribution(results: Dict[str, Any]) -> go.Figure:
     """Create latency distribution box plot using median_abs_dev."""
     fig = go.Figure()
 
-    benchmarks = ["predict_single", "predict_many", "train_batch"]
+    benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
     for framework, data in results.items():
         mad_values = []
@@ -210,21 +213,36 @@ def plot_latency_distribution(results: Dict[str, Any]) -> go.Figure:
 
         for bench in benchmarks:
             if bench in data["benchmarks"]:
-                metrics = data["benchmarks"][bench]["metrics"]
-                if "median_abs_dev" in metrics:
-                    mad = metrics["median_abs_dev"]["estimate_ms"]
-                    if mad is not None:
-                        mad_values.append(mad)
-                        benchmark_names.append(bench.replace("_", "\n"))
+                bench_data = data["benchmarks"][bench]
 
-        fig.add_trace(
-            go.Bar(
-                x=benchmark_names,
-                y=mad_values,
-                name=framework.upper(),
-                marker=dict(color=FRAMEWORK_COLORS[framework]),
+                # Handle parametrized benchmarks (Train_Batch_Step has batch sizes as keys)
+                if bench == "Train_Batch_Step":
+                    # Take the first batch size as representative
+                    if "32" in bench_data:
+                        metrics = bench_data["32"]["metrics"]
+                        if "median_abs_dev" in metrics:
+                            mad = metrics["median_abs_dev"]["estimate_ms"]
+                            if mad is not None:
+                                mad_values.append(mad)
+                                benchmark_names.append(bench.replace("_", "\n"))
+                else:
+                    # Non-parametrized benchmarks
+                    metrics = bench_data["metrics"]
+                    if "median_abs_dev" in metrics:
+                        mad = metrics["median_abs_dev"]["estimate_ms"]
+                        if mad is not None:
+                            mad_values.append(mad)
+                            benchmark_names.append(bench.replace("_", "\n"))
+
+        if mad_values:
+            fig.add_trace(
+                go.Bar(
+                    x=benchmark_names,
+                    y=mad_values,
+                    name=framework.upper(),
+                    marker=dict(color=FRAMEWORK_COLORS[framework]),
+                )
             )
-        )
 
     fig.update_layout(
         title="Latency Distribution: Median Absolute Deviation",
@@ -245,43 +263,88 @@ def plot_confidence_intervals(results: Dict[str, Any]) -> go.Figure:
     """Create confidence interval visualization for mean latencies."""
     fig = go.Figure()
 
-    benchmarks = ["predict_single", "predict_many", "train_batch"]
+    benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
     frameworks_list = list(results.keys())
 
     for i, benchmark in enumerate(benchmarks):
         for j, framework in enumerate(frameworks_list):
             if benchmark in results[framework]["benchmarks"]:
-                metrics = results[framework]["benchmarks"][benchmark]["metrics"]
-                if "mean" in metrics:
-                    mean = metrics["mean"]
-                    estimate = mean["estimate_ms"]
-                    lower = mean["ci_lower_ms"]
-                    upper = mean["ci_upper_ms"]
+                bench_data = results[framework]["benchmarks"][benchmark]
 
-                    # Add point
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[benchmark],
-                            y=[estimate],
-                            mode="markers",
-                            marker=dict(size=10, color=FRAMEWORK_COLORS[framework]),
-                            name=framework.upper(),
-                            showlegend=(i == 0),
-                        )
-                    )
+                # Handle parametrized benchmarks
+                if benchmark == "Train_Batch_Step":
+                    # Use first batch size as representative
+                    if "32" in bench_data:
+                        metrics = bench_data["32"]["metrics"]
+                        if "mean" in metrics:
+                            mean = metrics["mean"]
+                            estimate = mean["estimate_ms"]
+                            lower = mean["ci_lower_ms"]
+                            upper = mean["ci_upper_ms"]
 
-                    # Add error bars
-                    if lower is not None and upper is not None:
+                            # Add point
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=[benchmark],
+                                    y=[estimate],
+                                    mode="markers",
+                                    marker=dict(
+                                        size=10, color=FRAMEWORK_COLORS[framework]
+                                    ),
+                                    name=framework.upper(),
+                                    showlegend=(i == 0),
+                                )
+                            )
+
+                            # Add error bars
+                            if lower is not None and upper is not None:
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[benchmark, benchmark],
+                                        y=[lower, upper],
+                                        mode="lines",
+                                        line=dict(
+                                            color=FRAMEWORK_COLORS[framework], width=2
+                                        ),
+                                        showlegend=False,
+                                        hoverinfo="skip",
+                                    )
+                                )
+                else:
+                    # Non-parametrized benchmarks
+                    metrics = bench_data["metrics"]
+                    if "mean" in metrics:
+                        mean = metrics["mean"]
+                        estimate = mean["estimate_ms"]
+                        lower = mean["ci_lower_ms"]
+                        upper = mean["ci_upper_ms"]
+
+                        # Add point
                         fig.add_trace(
                             go.Scatter(
-                                x=[benchmark, benchmark],
-                                y=[lower, upper],
-                                mode="lines",
-                                line=dict(color=FRAMEWORK_COLORS[framework], width=2),
-                                showlegend=False,
-                                hoverinfo="skip",
+                                x=[benchmark],
+                                y=[estimate],
+                                mode="markers",
+                                marker=dict(size=10, color=FRAMEWORK_COLORS[framework]),
+                                name=framework.upper(),
+                                showlegend=(i == 0),
                             )
                         )
+
+                        # Add error bars
+                        if lower is not None and upper is not None:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=[benchmark, benchmark],
+                                    y=[lower, upper],
+                                    mode="lines",
+                                    line=dict(
+                                        color=FRAMEWORK_COLORS[framework], width=2
+                                    ),
+                                    showlegend=False,
+                                    hoverinfo="skip",
+                                )
+                            )
 
     fig.update_layout(
         title="Mean Latency with 95% Confidence Intervals",
@@ -303,13 +366,22 @@ def compute_speedup_ratios(results: Dict[str, Any]) -> pd.DataFrame:
 
     speedup_data = []
 
-    benchmarks = ["predict_single", "predict_many", "train_batch"]
+    benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
     for bench in benchmarks:
         if bench not in results[baseline_framework]["benchmarks"]:
             continue
 
-        baseline_metrics = results[baseline_framework]["benchmarks"][bench]["metrics"]
+        baseline_bench_data = results[baseline_framework]["benchmarks"][bench]
+
+        # Handle parametrized benchmarks
+        if bench == "Train_Batch_Step" and "32" in baseline_bench_data:
+            baseline_metrics = baseline_bench_data["32"]["metrics"]
+        elif bench != "Train_Batch_Step":
+            baseline_metrics = baseline_bench_data["metrics"]
+        else:
+            continue
+
         if "mean" not in baseline_metrics:
             continue
 
@@ -322,7 +394,16 @@ def compute_speedup_ratios(results: Dict[str, Any]) -> pd.DataFrame:
             if bench not in results[framework]["benchmarks"]:
                 continue
 
-            metrics = results[framework]["benchmarks"][bench]["metrics"]
+            bench_data = results[framework]["benchmarks"][bench]
+
+            # Handle parametrized benchmarks
+            if bench == "Train_Batch_Step" and "32" in bench_data:
+                metrics = bench_data["32"]["metrics"]
+            elif bench != "Train_Batch_Step":
+                metrics = bench_data["metrics"]
+            else:
+                continue
+
             if "mean" not in metrics:
                 continue
 
@@ -358,12 +439,21 @@ def create_summary_table(
         }
 
         # Add benchmark metrics
-        for bench in ["predict_single", "predict_many", "train_batch"]:
+        for bench in ["Predict_Single", "Predict_Many", "Train_Batch_Step"]:
             if bench in data["benchmarks"]:
-                metrics = data["benchmarks"][bench]["metrics"]
-                if "mean" in metrics:
-                    latency = metrics["mean"]["estimate_ms"]
-                    row[f"{bench} (ms)"] = f"{latency:.2f}"
+                bench_data = data["benchmarks"][bench]
+
+                # Handle parametrized benchmarks
+                if bench == "Train_Batch_Step" and "32" in bench_data:
+                    metrics = bench_data["32"]["metrics"]
+                    if "mean" in metrics:
+                        latency = metrics["mean"]["estimate_ms"]
+                        row[f"{bench} (ms)"] = f"{latency:.2f}"
+                elif bench != "Train_Batch_Step":
+                    metrics = bench_data["metrics"]
+                    if "mean" in metrics:
+                        latency = metrics["mean"]["estimate_ms"]
+                        row[f"{bench} (ms)"] = f"{latency:.2f}"
 
         summary_data.append(row)
 
@@ -393,18 +483,35 @@ def save_results_csv(results: Dict[str, Any], output_dir: Path):
     benchmark_data = []
     for framework, data in results.items():
         for bench_name, bench_data in data["benchmarks"].items():
-            metrics = bench_data["metrics"]
-            if "mean" in metrics:
-                mean = metrics["mean"]
-                benchmark_data.append(
-                    {
-                        "Framework": framework.upper(),
-                        "Benchmark": bench_name,
-                        "Mean (ms)": mean["estimate_ms"],
-                        "CI Lower (ms)": mean["ci_lower_ms"],
-                        "CI Upper (ms)": mean["ci_upper_ms"],
-                    }
-                )
+            # Handle parametrized benchmarks (Train_Batch_Step)
+            if bench_name == "Train_Batch_Step":
+                for batch_size, batch_data in bench_data.items():
+                    metrics = batch_data["metrics"]
+                    if "mean" in metrics:
+                        mean = metrics["mean"]
+                        benchmark_data.append(
+                            {
+                                "Framework": framework.upper(),
+                                "Benchmark": f"{bench_name} (batch={batch_size})",
+                                "Mean (ms)": mean["estimate_ms"],
+                                "CI Lower (ms)": mean["ci_lower_ms"],
+                                "CI Upper (ms)": mean["ci_upper_ms"],
+                            }
+                        )
+            else:
+                # Non-parametrized benchmarks
+                metrics = bench_data["metrics"]
+                if "mean" in metrics:
+                    mean = metrics["mean"]
+                    benchmark_data.append(
+                        {
+                            "Framework": framework.upper(),
+                            "Benchmark": bench_name,
+                            "Mean (ms)": mean["estimate_ms"],
+                            "CI Lower (ms)": mean["ci_lower_ms"],
+                            "CI Upper (ms)": mean["ci_upper_ms"],
+                        }
+                    )
 
     df_benchmarks = pd.DataFrame(benchmark_data)
     df_benchmarks.to_csv(output_dir / "benchmark_metrics.csv", index=False)

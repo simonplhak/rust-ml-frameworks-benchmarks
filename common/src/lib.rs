@@ -32,8 +32,8 @@ pub struct BenchmarkConfig {
     #[arg(long, default_value_t = 5)]
     pub max_epochs: usize,
 
-    #[arg(long)]
-    pub output_csv: Option<PathBuf>,
+    #[arg(long, default_value = "convergence_results.csv")]
+    pub output_csv: PathBuf,
 }
 
 impl BenchmarkConfig {
@@ -214,15 +214,13 @@ pub fn benchmark_train(model_runner: impl RunableModel, config: &BenchmarkConfig
     println!("==================================");
 
     println!("\n[4/5] Saving results...");
-    // Save results to CSV if output path is provided
-    if let Some(output_path) = &config.output_csv {
-        match save_convergence_results(&results, output_path) {
-            Ok(_) => {
-                println!("[✓] Results saved to: {}", output_path.display());
-                println!("    Wrote {} convergence records", results.len());
-            }
-            Err(e) => eprintln!("Failed to save results: {}", e),
+    // Save results to CSV
+    match save_convergence_results(&results, &config.output_csv) {
+        Ok(_) => {
+            println!("[✓] Results saved to: {}", config.output_csv.display());
+            println!("    Wrote {} convergence records", results.len());
         }
+        Err(e) => eprintln!("Failed to save results: {}", e),
     }
 
     // Print summary
