@@ -29,6 +29,8 @@ jobs:
               run: uv sync
 
             - name: Run benchmarks
+              env:
+                  LIBTORCH_USE_PYTORCH: "1"
               run: uv run python run_benchmarks.py
 
             - name: Upload benchmark results

@@ -179,10 +179,17 @@ Interpretation: Higher bars = faster, slope = scaling efficiency
 - Python 3.12+
 - Rust toolchain
 - UV package manager
+- **Environment variable:** `LIBTORCH_USE_PYTORCH=1` (required for TCH-rs framework)
 
 ### Installation
 
-1. **Install dependencies:**
+1. **Set environment variable (required for TCH-rs):**
+
+```bash
+export LIBTORCH_USE_PYTORCH=1
+```
+
+2. **Install dependencies:**
 
 ```bash
 # UV will install all Python dependencies from pyproject.toml
