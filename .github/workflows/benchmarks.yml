@@ -28,9 +28,13 @@ jobs:
             - name: Sync Python dependencies
               run: uv sync
 
+            - name: Install PyTorch (Linux)
+              run: pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+
             - name: Run benchmarks
               env:
                   LIBTORCH_USE_PYTORCH: "1"
+                  LD_LIBRARY_PATH: ${{ runner.temp }}/.venv/lib/python3.14/site-packages/torch/lib:$LD_LIBRARY_PATH
               run: uv run python run_benchmarks.py
 
             - name: Upload benchmark results
