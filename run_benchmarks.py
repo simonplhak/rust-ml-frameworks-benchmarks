@@ -27,15 +27,10 @@ def run_command(cmd: list, cwd: Optional[Path] = None) -> str:
         result = subprocess.run(
             cmd,
             cwd=cwd,
-            capture_output=True,
+            capture_output=False,
             text=True,
-            timeout=600,
+            timeout=1200,
         )
-        # Print the output to console
-        if result.stdout:
-            print(result.stdout)
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
 
         if result.returncode != 0:
             error_msg = f"Command failed: {' '.join(cmd)}\n"
