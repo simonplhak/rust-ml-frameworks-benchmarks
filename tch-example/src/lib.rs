@@ -1,4 +1,5 @@
 use common::{BenchmarkConfig, HIDDEN_SIZE_1, INPUT_DIM, OUTPUT_SIZE, RunableModel};
+use std::rc::Rc;
 use tch::{
     Device, Kind, Tensor,
     nn::{self, Module, OptimizerConfig as _},
@@ -16,14 +17,14 @@ pub struct TchModel {
 
 #[derive(Clone)]
 pub struct TchTrainModel {
-    model: std::sync::Arc<nn::Sequential>,
-    vs: std::sync::Arc<std::sync::Mutex<nn::VarStore>>,
+    model: Rc<nn::Sequential>,
+    vs: Rc<nn::VarStore>,
 }
 
 #[derive(Clone)]
 pub struct TchBatch {
-    xs: std::sync::Arc<Tensor>,
-    ys: std::sync::Arc<Tensor>,
+    xs: Rc<Tensor>,
+    ys: Rc<Tensor>,
 }
 
 impl TchRunner {
@@ -70,16 +71,16 @@ impl RunableModel for TchRunner {
         let model = Self::build_model(&vs.root(), device);
 
         TchTrainModel {
-            model: std::sync::Arc::new(model),
-            vs: std::sync::Arc::new(std::sync::Mutex::new(vs)),
+            model: Rc::new(model),
+            vs: Rc::new(vs),
         }
     }
 
     fn optimizer(&self) -> Self::Optimizer {
         let model = self.train_model();
-        let vs_guard = model.vs.lock().unwrap();
+        let vs_guard = &*model.vs;
         nn::Adam::default()
-            .build(&vs_guard, self.config.learning_rate)
+            .build(vs_guard, self.config.learning_rate)
             .unwrap()
     }
 
@@ -112,8 +113,8 @@ impl RunableModel for TchRunner {
             .to(device);
 
         TchBatch {
-            xs: std::sync::Arc::new(xs),
-            ys: std::sync::Arc::new(ys),
+            xs: Rc::new(xs),
+            ys: Rc::new(ys),
         }
     }
 
@@ -123,7 +124,7 @@ impl RunableModel for TchRunner {
         optimizer: &mut Self::Optimizer,
         batch: Self::Batch,
     ) -> Self::TrainModel {
-        let logits = train_model.model.forward(&batch.xs);
+        let logits = (*train_model.model).forward(&batch.xs);
         let loss = logits.cross_entropy_for_logits(&batch.ys);
         optimizer.backward_step(&loss);
         train_model
