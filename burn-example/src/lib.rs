@@ -157,15 +157,13 @@ impl<B: AutodiffBackend> RunableModel for BurnModel<B> {
     }
 
     fn dataset(&self, xs: &[f32], ys: &[usize]) -> Self::Dataset {
-        let items = xs
-            .chunks(INPUT_DIM)
+        xs.chunks(INPUT_DIM)
             .zip(ys)
             .map(|(query, &label)| BurnItem {
                 query: query.try_into().unwrap(),
                 label,
             })
-            .collect();
-        items
+            .collect()
     }
 
     fn batch(&self, xs: &[f32], ys: &[usize]) -> Self::Batch {
