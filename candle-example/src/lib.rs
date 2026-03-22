@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
-use candle_core::{DType, Device, Tensor};
-use candle_nn::{linear, Module, Optimizer as _, Sequential, VarBuilder, VarMap};
+use candle_core::{DType, Device, IndexOp as _, Tensor, D};
+use candle_nn::{linear, loss, ops, Module, Optimizer as _, Sequential, VarBuilder, VarMap};
 use common::{BenchmarkConfig, RunableModel, HIDDEN_SIZE_1, INPUT_DIM, OUTPUT_SIZE};
 
 pub struct CandleRunner {
@@ -19,20 +19,18 @@ impl CandleRunner {
 }
 
 pub struct CandleModel {
-    network: Arc<Sequential>,
-    device: Device,
+    network: Sequential,
 }
 
 #[derive(Clone)]
 pub struct CandleTrainModel {
-    network: Arc<Sequential>,
+    network: Rc<Sequential>,
     varmap: VarMap,
-    device: Device,
 }
 
 pub struct CandleDataset {
-    xs: Vec<f32>,
-    ys: Vec<usize>,
+    xs: Tensor,
+    ys: Tensor,
 }
 
 #[derive(Clone)]
@@ -72,25 +70,24 @@ impl RunableModel for CandleRunner {
 
     fn model(&self) -> Self::Model {
         CandleModel {
-            network: Arc::new(build_inference_network(&self.device)),
-            device: self.device.clone(),
+            network: build_inference_network(&self.device),
         }
     }
 
     fn train_model(&self) -> Self::TrainModel {
         let (network, varmap) = build_train_network(&self.device);
         CandleTrainModel {
-            network: Arc::new(network),
+            network: Rc::new(network),
             varmap,
-            device: self.device.clone(),
         }
     }
 
     fn dataset(&self, xs: &[f32], ys: &[usize]) -> Self::Dataset {
-        CandleDataset {
-            xs: xs.to_vec(),
-            ys: ys.to_vec(),
-        }
+        let xs = Tensor::from_slice(xs, (xs.len() / INPUT_DIM, INPUT_DIM), &self.device).unwrap();
+        let labels = ys.len();
+        let ys = ys.iter().map(|y| *y as i64).collect::<Vec<_>>();
+        let ys = Tensor::from_vec(ys, (labels,), &self.device).unwrap();
+        CandleDataset { xs, ys }
     }
 
     fn batch(&self, xs: &[f32], ys: &[usize]) -> Self::Batch {
@@ -128,40 +125,44 @@ impl RunableModel for CandleRunner {
     }
 
     fn train(&self, dataset: &Self::Dataset, epochs: usize) -> Self::Model {
-        let mut train_model = self.train_model();
+        let varmap = VarMap::new();
+        let vs = VarBuilder::from_varmap(&varmap, DType::F32, &self.device);
+
+        let model = candle_nn::seq()
+            .add(linear(INPUT_DIM, HIDDEN_SIZE_1, vs.pp("layer1")).unwrap())
+            .add_fn(|xs| xs.relu())
+            .add(linear(HIDDEN_SIZE_1, OUTPUT_SIZE, vs.pp("layer2")).unwrap());
         let optim_config = candle_nn::ParamsAdamW {
             lr: self.config.learning_rate,
             weight_decay: 0.0,
             ..Default::default()
         };
-        let mut optimizer = candle_nn::AdamW::new(train_model.varmap.all_vars(), optim_config)
+        let mut optimizer = candle_nn::AdamW::new(varmap.all_vars(), optim_config)
             .expect("Failed to create optimizer");
+        let total_samples = dataset.ys.dim(0).unwrap();
 
-        let batch_size = self.config.batch_size;
-        let num_samples = dataset.xs.len() / INPUT_DIM;
-
-        for _epoch in 0..epochs {
+        for _ in 0..epochs {
             let mut start = 0;
-            while start < num_samples {
-                let end = std::cmp::min(start + batch_size, num_samples);
-                let batch_xs = &dataset.xs[start * INPUT_DIM..end * INPUT_DIM];
-                let batch_ys = &dataset.ys[start..end];
+            while start < total_samples {
+                let end = std::cmp::min(start + self.config.batch_size, total_samples);
 
-                let batch = self.batch(batch_xs, batch_ys);
-                train_model = self.train_batch(train_model, &mut optimizer, batch);
+                let batch_xs = dataset.xs.i(start..end).unwrap();
+                let batch_ys = dataset.ys.i(start..end).unwrap();
+
+                let logits = model.forward(&batch_xs).unwrap();
+                let log_sm = ops::log_softmax(&logits, D::Minus1).unwrap();
+                let loss = loss::nll(&log_sm, &batch_ys).unwrap();
+                optimizer.backward_step(&loss).unwrap();
 
                 start = end;
             }
         }
 
-        CandleModel {
-            network: train_model.network,
-            device: train_model.device,
-        }
+        CandleModel { network: model }
     }
 
     fn predict_single(&self, model: &Self::Model, x: &[f32]) -> usize {
-        let xs_tensor = Tensor::from_slice(x, (1, INPUT_DIM), &model.device)
+        let xs_tensor = Tensor::from_slice(x, (1, INPUT_DIM), &self.device)
             .expect("Failed to create input tensor");
         let logits = model
             .network
@@ -186,7 +187,7 @@ impl RunableModel for CandleRunner {
             let chunk_size = chunk_end - chunk_start;
             let chunk_xs = &x[chunk_start * INPUT_DIM..chunk_end * INPUT_DIM];
 
-            let xs_tensor = Tensor::from_slice(chunk_xs, (chunk_size, INPUT_DIM), &model.device)
+            let xs_tensor = Tensor::from_slice(chunk_xs, (chunk_size, INPUT_DIM), &self.device)
                 .expect("Failed to create input tensor");
             let logits = model
                 .network
