@@ -16,7 +16,9 @@ import traceback
 
 
 # Framework configurations
-FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
+# todo: use all benchmarks
+# FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
+FRAMEWORKS = ["tch-example"]
 RESULT_DIR = Path("results")
 CRITERION_BENCHMARKS = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
