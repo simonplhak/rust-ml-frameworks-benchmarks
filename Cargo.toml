@@ -1,7 +1,3 @@
 [workspace]
 resolver = "3"
 members = ["burn-example", "candle-example","common", "tch-example"]
-
-[workspace.package]
-# To avoid torch-sys conflicts, tch-example should be built separately
-# when burn-example is using PyTorch backend
