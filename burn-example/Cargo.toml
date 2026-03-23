@@ -11,6 +11,7 @@ criterion = "0.8.2"
 
 
 [features]
+default = ["ndarray"]
 ndarray = ["burn/ndarray"]
 ndarray-blas-accelerate = ["burn/ndarray", "burn/accelerate"]
 ndarray-blas-netlib = ["burn/ndarray", "burn/blas-netlib"]

@@ -249,12 +249,6 @@ impl<B: AutodiffBackend> RunableModel for BurnModel<B> {
     }
 }
 
-#[cfg(any(
-    feature = "ndarray",
-    feature = "ndarray-blas-netlib",
-    feature = "ndarray-blas-openblas",
-    feature = "ndarray-blas-accelerate",
-))]
 pub fn model_runnner(config: BenchmarkConfig) -> impl RunableModel {
     use burn::backend::{
         Autodiff,
@@ -262,14 +256,4 @@ pub fn model_runnner(config: BenchmarkConfig) -> impl RunableModel {
     };
     let device = NdArrayDevice::Cpu;
     BurnModel::<Autodiff<NdArray<f32, u32>>>::new(config.clone(), device)
-}
-
-#[cfg(feature = "tch-cpu")]
-pub fn model_runnner(config: BenchmarkConfig) -> impl RunableModel {
-    use burn::backend::{
-        Autodiff,
-        libtorch::{LibTorch, LibTorchDevice},
-    };
-    let device = LibTorchDevice::Cpu;
-    BurnModel::<Autodiff<LibTorch<f32>>>::new(config.clone(), device)
 }
