@@ -248,10 +248,16 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     print(f"[1/2] Running {framework_name} binary...")
     try:
         csv_output_path = framework_dir / "convergence_results.csv"
-        cmd = ["cargo", "run", "--release", "-p", framework_name]
-        if framework_name == "burn-example":
-            cmd.extend(["--features", "ndarray"])
-        cmd.extend(["--", "--output-csv", str(csv_output_path)])
+        cmd = [
+            "cargo",
+            "run",
+            "--release",
+            "-p",
+            framework_name,
+            "--",
+            "--output-csv",
+            str(csv_output_path),
+        ]
         run_command(cmd)
         print(f"✓ {framework_name} binary completed")
     except RuntimeError as e:
