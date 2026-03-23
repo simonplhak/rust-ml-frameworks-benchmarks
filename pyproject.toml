@@ -5,20 +5,8 @@ description = "Benchmarking suite for Rust ML frameworks with visualization"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "torch==2.9.0",
     "plotly>=5.18.0",
     "pandas>=2.1.0",
     "numpy>=1.24.0",
     "kaleido>=0.2.1",
 ]
-
-[tool.uv]
-# Use CPU-only PyTorch from PyTorch's index
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-
-# Also include PyPI as a fallback
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple"
