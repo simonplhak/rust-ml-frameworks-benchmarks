@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 
-use burn::data::dataloader::DataLoaderBuilder;
 use burn::data::dataloader::batcher::Batcher;
+use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
 use burn::data::dataset::Dataset;
 use burn::module::{AutodiffModule, Module};
 use burn::nn::loss::CrossEntropyLossConfig;
@@ -45,7 +46,7 @@ pub struct BurnBatcher<B: Backend> {
     _marker: PhantomData<B>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BurnItem {
     pub query: [f32; INPUT_DIM],
     pub label: usize,
@@ -120,7 +121,7 @@ pub struct BurnDataset {
 
 impl Dataset<BurnItem> for BurnDataset {
     fn get(&self, index: usize) -> Option<BurnItem> {
-        self.dataset.get(index).cloned()
+        self.dataset.get(index).copied()
     }
 
     fn len(&self) -> usize {
@@ -148,7 +149,7 @@ impl<B: AutodiffBackend> BurnModel<B> {
 impl<B: AutodiffBackend> RunableModel for BurnModel<B> {
     type TrainModel = Model<B>;
     type Model = Model<B::InnerBackend>;
-    type Dataset = Vec<BurnItem>;
+    type Dataset = Arc<dyn DataLoader<B, BurnBatch<B>>>;
     type Batch = BurnBatch<B>;
     type Optimizer = OptimizerAdaptor<Adam, Model<B>, B>;
 
@@ -157,13 +158,20 @@ impl<B: AutodiffBackend> RunableModel for BurnModel<B> {
     }
 
     fn dataset(&self, xs: &[f32], ys: &[usize]) -> Self::Dataset {
-        xs.chunks(INPUT_DIM)
+        let dataset = xs
+            .chunks(INPUT_DIM)
             .zip(ys)
             .map(|(query, &label)| BurnItem {
                 query: query.try_into().unwrap(),
                 label,
             })
-            .collect()
+            .collect::<Vec<_>>();
+        let batcher = BurnBatcher::<B>::default();
+        DataLoaderBuilder::new(batcher)
+            .batch_size(self.config.batch_size)
+            .shuffle(SEED)
+            .num_workers(self.config.num_workers)
+            .build(BurnDataset::new(dataset.to_vec()))
     }
 
     fn batch(&self, xs: &[f32], ys: &[usize]) -> Self::Batch {
@@ -197,17 +205,11 @@ impl<B: AutodiffBackend> RunableModel for BurnModel<B> {
     }
 
     fn train(&self, dataset: &Self::Dataset, epochs: usize) -> Self::Model {
-        let batcher = BurnBatcher::<B>::default();
-        let dataloader_train = DataLoaderBuilder::new(batcher)
-            .batch_size(self.config.batch_size)
-            .shuffle(SEED)
-            .num_workers(self.config.num_workers)
-            .build(BurnDataset::new(dataset.to_vec()));
         let device = B::Device::default();
         let mut burn_model = Model::<B>::new(&device);
         let mut optim = AdamConfig::new().init();
         for _ in 0..epochs {
-            for batch in dataloader_train.iter() {
+            for batch in dataset.iter() {
                 let output = TrainStep::step(&burn_model, batch);
                 burn_model = optim.step(self.config.learning_rate, burn_model, output.grads);
             }
@@ -255,5 +257,18 @@ pub fn model_runnner(config: BenchmarkConfig) -> impl RunableModel {
         ndarray::{NdArray, NdArrayDevice},
     };
     let device = NdArrayDevice::Cpu;
-    BurnModel::<Autodiff<NdArray<f32, u32>>>::new(config.clone(), device)
+    BurnModel::<Autodiff<NdArray<f32, u32>>>::new(config, device)
 }
+// pub fn model_runnner(config: BenchmarkConfig) -> impl RunableModel {
+//     use burn::backend::{
+//         Autodiff,
+//         Cpu, // 1. Import the CubeCL-powered Cpu backend instead of ndarray
+//     };
+    
+//     // 2. The Cpu backend maps perfectly to your system's processor using Default
+//     let device = Default::default(); 
+    
+//     // 3. Swap the generic type. `Cpu` automatically handles the float/int types 
+//     // (defaulting to f32/i32) so you don't need the `<f32, u32>` boilerplate anymore.
+//     BurnModel::<Autodiff<Cpu>>::new(config.clone(), device)
+// }

@@ -4,18 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.20", features = ["train", "dataset"] }
+burn = { version = "0.20.1", features = ["train", "dataset"] }
 burn-fusion = "0.20"
 common = { path = "../common" }
 criterion = "0.8.2"
 
 
 [features]
-default = ["ndarray"]
+default = []
 ndarray = ["burn/ndarray"]
 ndarray-blas-accelerate = ["burn/ndarray", "burn/accelerate"]
 ndarray-blas-netlib = ["burn/ndarray", "burn/blas-netlib"]
-ndarray-blas-openblas = ["burn/ndarray", "burn/openblas"]
+ndarray-blas-openblas = ["burn/ndarray", "burn/openblas-system"]
+ndarray-simd = ["burn/ndarray", "burn/simd"]
 tch-cpu = ["burn/tch"]
 
 
