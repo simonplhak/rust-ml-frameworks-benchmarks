@@ -150,8 +150,7 @@ impl RunableModel for CandleRunner {
                 let batch_ys = dataset.ys.i(start..end).unwrap();
 
                 let logits = model.forward(&batch_xs).unwrap();
-                let log_sm = ops::log_softmax(&logits, D::Minus1).unwrap();
-                let loss = loss::nll(&log_sm, &batch_ys).unwrap();
+                let loss = candle_nn::loss::cross_entropy(&logits, &batch_ys).unwrap();
                 optimizer.backward_step(&loss).unwrap();
 
                 start = end;
@@ -168,13 +167,13 @@ impl RunableModel for CandleRunner {
             .network
             .forward(&xs_tensor)
             .expect("Forward pass failed");
-        let prediction = logits
+        let predictions = logits
             .argmax(1)
             .expect("Argmax failed")
-            .to_scalar::<u32>()
-            .expect("Failed to convert to scalar");
+            .to_vec1::<u32>()
+            .expect("Failed to convert to vec");
 
-        prediction as usize
+        predictions[0] as usize
     }
 
     fn predict_many(&self, model: &Self::Model, x: &[f32]) -> Vec<usize> {
