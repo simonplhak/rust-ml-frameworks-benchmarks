@@ -1,0 +1,5 @@
+Framework,Final Accuracy,Total Training Time (ms),Total Epochs,Predict_Single (ms),Predict_Many (ms),Train_Batch_Step (ms)
+BURN-NDARRAY,0.9741,8672.24,5,0.36,85.51,2.67
+BURN-SIMD,0.9748,8507.19,5,0.29,69.28,2.46
+TCH,0.9720,2894.95,5,0.06,28.11,0.30
+CANDLE,0.9720,9516.66,5,0.02,29.20,1.76

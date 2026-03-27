@@ -12,11 +12,24 @@ This suite runs benchmarks for three Rust machine learning frameworks:
 
 All three frameworks are benchmarked on the same task: **MNIST digit classification** using a 2-layer neural network (784→256→10).
 
+## Model Architecture
+
+The benchmark uses a simple 2-layer neural network:
+
+- **Input layer:** 784 neurons (28×28 MNIST images flattened)
+- **Hidden layer:** 256 neurons with ReLU activation
+- **Output layer:** 10 neurons (digit classes 0-9) with softmax
+- **Optimizer:** Adam with learning rate 0.01
+- **Batch size:** 256 (except for explicit batch size experiments)
+
 ### Benchmarking Focus: CPU Performance
 
 ⚠️ **Important:** This benchmark suite focuses exclusively on **CPU performance**. All three frameworks are configured to run on CPU:
 
-- **Burn** - Uses ndarray backend (pure Rust, CPU only)
+- **Burn** - Tested with three CPU backends:
+  - `ndarray` - Pure Rust BLAS-free implementation
+  - `ndarray-openblas` - With OpenBLAS acceleration
+  - `ndarray-simd` - With SIMD optimizations
 - **TCH-rs** - Configured for CPU inference/training
 - **Candle** - Runs on CPU (GPU support available but not configured)
 
@@ -32,67 +45,20 @@ This suite runs **4 distinct experiments** to comprehensively evaluate framework
 
 **Configuration:**
 
-- Framework: Each framework's `main.rs` compiled with `cargo run --release`
-  - **Burn:** Compiled with `--features ndarray` (pure Rust CPU backend)
-  - **TCH-rs:** Default features (PyTorch C++ bindings)
-  - **Candle:** Default features (HuggingFace native Rust)
-- Task: Train a 2-layer neural network (784→256→10) on MNIST
 - Epochs: 1 to 5 (incremental - each run trains from scratch for N epochs)
-- Batch size: 256
-- Learning rate: 0.01
-- Optimizer: Adam (framework-dependent implementation)
 - Num workers: 8
-
-**Metrics collected (per epoch):**
-
-- **Epoch:** Iteration number (1-20)
-- **Training Time (ms):** Cumulative milliseconds to complete N epochs
-- **Accuracy:** Classification accuracy on 10,000 test samples
-
-**Output:** CSV file with convergence data for all 5 epochs
-
-**Why this matters:** Shows which framework trains most efficiently and achieves best accuracy fastest.
-
-#### Convergence Results Visualization
-
-```
-[PLACEHOLDER: Convergence curves graph]
-Type: Line plot with markers
-X-axis: Epoch (1-20), Y-axis: Accuracy (0.0-1.0)
-Series: Three lines (Burn, TCH, Candle)
-Interpretation: Steepness = faster convergence
-```
 
 ---
 
 ### Experiment 2: Single-Sample Inference Latency
 
-**What it measures:** How long it takes to classify a single MNIST image (cold start).
+**What it measures:** How long it takes to classify a single MNIST image.
 
-**Criterion Configuration:**
+**Configuration:**
+
 - Benchmark name: `predict_single`
-- Sample size: 100 measurements
-- Warm-up: 3 seconds, Measurement time: 5 seconds
 - Input: One flattened 784-dimensional MNIST image
-
-**Metrics collected:**
-- **Mean latency (ms):** Average inference time with 95% confidence interval
-- **Median latency (ms):** 50th percentile with 95% confidence interval
-- **Std Dev (ms):** Standard deviation in inference times
-- **Median Absolute Deviation (MAD, ms):** Robust spread measure
-- **Slope (ms):** Linear regression coefficient
-
-**Why this matters:** Measures framework overhead and startup cost for small inputs. Critical for real-time inference applications.
-
-#### Single-Sample Inference Latency Visualization
-
-```
-[PLACEHOLDER: Single-sample inference latency]
-Type: Grouped bar chart with error bars
-X-axis: Framework (Burn, TCH, Candle)
-Y-axis: Latency (ms)
-Interpretation: Lower bar = faster inference
-```
+- Sample size: 100 measurements with 3 second warm-up and 5 second measurement time
 
 ---
 
@@ -100,80 +66,24 @@ Interpretation: Lower bar = faster inference
 
 **What it measures:** How long it takes to classify 10,000 MNIST images in a batch.
 
-**Criterion Configuration:**
+**Configuration:**
+
 - Benchmark name: `predict_many`
-- Sample size: 100 measurements
-- Warm-up: 3 seconds, Measurement time: 5 seconds
 - Input: All 10,000 test MNIST images (~31.4 MB)
-
-**Metrics collected:**
-- **Mean latency (ms):** Average time with 95% confidence interval
-- **Median latency (ms):** 50th percentile with 95% confidence interval
-- **Std Dev (ms):** Standard deviation
-- **Median Absolute Deviation (MAD, ms):** Robust spread measure
-- **Throughput:** Samples per second
-
-**Why this matters:** Shows framework efficiency with large batches. Important for inference pipelines. Typically faster per-sample than single inference due to vectorization.
-
-#### Batch Inference Throughput Visualization
-
-```
-[PLACEHOLDER: Batch inference throughput]
-Type: Grouped bar chart
-X-axis: Experiment (Single, Batch)
-Y-axis: Latency (ms)
-Interpretation: Batch should have lower per-sample latency
-```
+- Sample size: 100 measurements with 3 second warm-up and 5 second measurement time
 
 ---
 
 ### Experiment 4: Training Step Performance (Variable Batch Sizes)
 
-**What it measures:** Forward pass + backward pass + optimizer step takes at different batch sizes.
+**What it measures:** Forward pass + backward pass + optimizer step time at different batch sizes.
 
-**Criterion Configuration:**
+**Configuration:**
+
 - Benchmark name: `train_batch`
-- Sample size: 20 measurements (training is expensive)
-- Warm-up: 3 seconds, Measurement time: 5 seconds
-- Batch sizes tested: [32, 64, 128]
-- Input: Random dummy data (isolates compute speed from I/O)
-
-**Metrics collected (per batch size):**
-- **Mean latency (ms):** Average training step time with 95% CI
-- **Median latency (ms):** 50th percentile with 95% CI
-- **Std Dev (ms):** Standard deviation
-- **Median Absolute Deviation (MAD, ms):** Robust spread measure
-- **Throughput (samples/sec):** Derived from inverse of latency
-
-**Batch sizes tested:**
-- **32:** Small batch (memory efficient)
-- **64:** Medium batch (balanced)
-- **128:** Large batch (maximizes parallelism)
-
-**Why this matters:** Different applications use different batch sizes. Shows which framework scales best with batch size. Important for production deployment decisions.
-
-#### Training Throughput vs. Batch Size Visualization
-
-```
-[PLACEHOLDER: Training throughput across batch sizes]
-Type: Grouped bar chart
-X-axis: Batch Size (32, 64, 128)
-Y-axis: Throughput (samples/sec)
-Interpretation: Higher bars = faster, slope = scaling efficiency
-```
-
----
-
-## Metrics Summary
-
-**All Criterion metrics extracted per benchmark:**
-
-- **Mean** - Average value with 95% confidence interval (± ~2-5%)
-- **Median** - 50th percentile with 95% confidence interval (more robust than mean)
-- **Standard Deviation** - Measure of variance in measurements (higher = less stable)
-- **Median Absolute Deviation (MAD)** - Robust alternative to std dev (less sensitive to outliers)
-- **Slope** - Linear regression coefficient (if applicable)
-- **Unit conversion:** Criterion outputs nanoseconds (ns), all converted to **milliseconds (ms)** for consistency
+- Input: Random dummy data to isolate compute performance
+- Batch sizes: 32, 64, 128
+- Sample size: 20 measurements with 3 second warm-up and 5 second measurement time
 
 ## Setup
 
@@ -186,22 +96,13 @@ Interpretation: Higher bars = faster, slope = scaling efficiency
 
 ### Installation
 
-1. **Set environment variable (required for TCH-rs):**
-
 ```bash
+uv sync
+uv pip install torch==2.9.0
 export LIBTORCH_USE_PYTORCH=1
 ```
 
-2. **Install dependencies:**
-
-```bash
-# UV will install all Python dependencies from pyproject.toml
-uv sync
-```
-
 ## Usage
-
-### Running Benchmarks
 
 ```bash
 # Run benchmarks for all three frameworks
@@ -209,131 +110,35 @@ uv sync
 uv run python run_benchmarks.py
 ```
 
-The script will:
+The benchmark script will:
 
-1. Run `cargo run --release` for each framework → generates convergence CSV
-2. Run `cargo bench` for each framework → generates Criterion JSON results
-3. Parse all outputs and standardize units (ns → ms)
+1. Run `cargo run --release` for each framework → generates convergence data
+2. Run `cargo bench` for each framework → generates performance metrics
+3. Parse all outputs and standardize units
 4. Save timestamped results in `results/` directory
 5. **Abort immediately if ANY framework fails** (no partial results, no retries)
 
-**Output Structure:**
-
-```
-results/
-└── 2026-03-21_14-30-45/
-    ├── metadata.json          # Timestamp, git commit, Rust version
-    ├── burn_results.json      # Convergence + Criterion metrics
-    ├── tch_results.json
-    └── candle_results.json
-```
-
-### Generating Visualizations
+Then generate visualizations:
 
 ```bash
 # Generates plots from the latest benchmark run
 uv run python visualize_results.py
 ```
 
-**Output Visualizations** (saved to `visualizations/{run_timestamp}/`):
+Output includes:
 
-1. **01_convergence_curves.{html,png}** - Training accuracy over epochs
-2. **02_inference_latency.{html,png}** - Predict single/batch latency comparison
-3. **03_training_throughput.{html,png}** - Training throughput comparison
-4. **04_latency_distribution.{html,png}** - Latency MAD comparison
-5. **05_confidence_intervals.{html,png}** - Mean latency with CI bounds
+- **Visualizations** (saved to `visualizations/{run_timestamp}/`):
+  - `01_convergence_curves.png` - Training accuracy over epochs (line plot)
+  - `02_inference_latency.png` - Inference latency comparison across all benchmarks (grouped bars)
+  - `02b_inference_throughput.png` - Inference throughput with separate batch size labels (grouped bars)
+  - `03_training_throughput.png` - Training throughput vs. batch size (32, 64, 128) (grouped bars)
+  - `04_latency_distribution.png` - Latency distribution (MAD) across benchmarks (bars)
 
-**Data Exports** (CSV format):
-
-- `convergence_data.csv` - Epoch-by-epoch training data
-- `benchmark_metrics.csv` - All Criterion metrics with confidence intervals
-- `summary.csv` - Overall statistics per framework
-- `speedup_ratios.csv` - Relative performance vs. baseline (Burn)
-
-All plots are:
-
-- **Interactive HTML** - Zoom, pan, hover for exact values
-- **High-resolution PNG** - 300+ DPI suitable for thesis inclusion
-- **Publication-quality** - Plotly graph_objects with full formatting control
-
-## Results Storage
-
-### Metadata (`metadata.json`)
-
-```json
-{
-  "benchmark_suite_run": "2026-03-21_14-30-45",
-  "system_info": {
-    "timestamp": "2026-03-21T14:30:45.123456",
-    "git_commit": "abc123def456...",
-    "rust_version": "rustc 1.XX.X"
-  },
-  "frameworks": ["burn-example", "tch-example", "candle-example"]
-}
-```
-
-### Framework Results (`{framework}_results.json`)
-
-```json
-{
-  "framework": "burn-example",
-  "convergence": {
-    "convergence": [
-      {"epoch": 1, "training_time_ms": 234.5, "accuracy": 0.7234},
-      ...
-    ],
-    "total_epochs": 20,
-    "final_accuracy": 0.9834,
-    "total_training_time_ms": 4567.8
-  },
-  "benchmarks": {
-    "predict_single": {
-      "original_unit": "ns",
-      "metrics": {
-        "mean": {
-          "estimate_ms": 0.345,
-          "ci_lower_ms": 0.340,
-          "ci_upper_ms": 0.350,
-          "standard_error_ms": 0.002
-        },
-        ...
-      }
-    },
-    ...
-  }
-}
-```
-
-## Troubleshooting
-
-### Dependencies Not Installed
-
-```bash
-uv sync
-```
-
-### Criterion Benchmark Timeout
-
-If benchmarks timeout (>10 min), increase timeout in `run_benchmarks.py`:
-
-```python
-timeout=1200,  # Change from 600 to 1200 seconds
-```
-
-### PNG Export Failing
-
-Requires `kaleido` system dependency:
-
-```bash
-# macOS
-brew install kaleido
-
-# Linux
-apt-get install kaleido
-
-# Or via uv
-uv add kaleido
-```
+- **Data Exports** (CSV format):
+  - `convergence_data.csv` - Epoch-by-epoch training data
+  - `benchmark_metrics.csv` - All metrics with confidence intervals
+  - `summary.csv` - Overall statistics per framework
+  - `speedup_ratios.csv` - Relative performance vs. baseline (Burn)
 
 ## Performance Notes
 
@@ -347,6 +152,34 @@ uv add kaleido
   - 3 second warm-up
   - 5 second measurement time
   - 95% confidence level
+
+## Latest Results: 2026-03-27
+
+**Benchmark Suite Run:** `2026-03-27_11-50-27`
+
+**System Information:**
+
+- **Timestamp:** 2026-03-27T11:50:27.541105
+- **Git Commit:** `aaa14e6a4e60f64b0af2c0cb128547243fbc1a1d`
+- **Rust Version:** rustc 1.93.0-nightly (c86564c41 2025-11-27)
+
+**Frameworks Tested:**
+
+- burn-example-ndarray
+- burn-example-simd
+- burn-example-openblas
+- tch-example
+- candle-example
+
+![Convergence Curves](exports/2026-03-27_11-50-27/01_convergence_curves.png)
+
+![Inference Latency](exports/2026-03-27_11-50-27/02_inference_latency.png)
+
+![Inference Throughput](exports/2026-03-27_11-50-27/02b_inference_throughput.png)
+
+![Training Throughput](exports/2026-03-27_11-50-27/03_training_throughput.png)
+
+![Latency Distribution](exports/2026-03-27_11-50-27/04_latency_distribution.png)
 
 ## License
 
