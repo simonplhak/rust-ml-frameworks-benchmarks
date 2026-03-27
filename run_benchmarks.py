@@ -16,7 +16,38 @@ import traceback
 
 
 # Framework configurations
-FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
+# Each config dict contains:
+#   - name: workspace/package name (e.g., "burn-example")
+#   - short: short name for Criterion results (e.g., "burn")
+#   - binary: binary name suffix (e.g., "burn-example-ndarray")
+#   - features: list of feature flags to pass to cargo (empty list if none)
+FRAMEWORKS = [
+    {
+        "name": "burn-example",
+        "short": "burn",
+        "binary": "burn-example-ndarray",
+        "features": ["ndarray"],
+    },
+    {
+        "name": "burn-example",
+        "short": "burn",
+        "binary": "burn-example-simd",
+        "features": ["ndarray-simd"],
+    },
+    {
+        "name": "burn-example",
+        "short": "burn",
+        "binary": "burn-example-openblas",
+        "features": ["ndarray-openblas"],
+    },
+    {"name": "tch-example", "short": "tch", "binary": "tch-example", "features": []},
+    {
+        "name": "candle-example",
+        "short": "candle",
+        "binary": "candle-example",
+        "features": [],
+    },
+]
 RESULT_DIR = Path("results")
 CRITERION_BENCHMARKS = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
@@ -158,7 +189,9 @@ def parse_criterion_estimates(
     return metrics
 
 
-def parse_criterion_results(framework_dir: Path, framework_name: str) -> Dict[str, Any]:
+def parse_criterion_results(
+    framework_dir: Path, config: Dict[str, Any]
+) -> Dict[str, Any]:
     """Parse all Criterion benchmark results for a framework."""
     criterion_dir = Path("target") / "criterion"
 
@@ -166,7 +199,7 @@ def parse_criterion_results(framework_dir: Path, framework_name: str) -> Dict[st
         raise RuntimeError(f"Criterion directory not found: {criterion_dir}")
 
     benchmark_results = {}
-    framework_short = framework_name.split("-")[0]
+    framework_short = config["short"]
 
     for bench_name in CRITERION_BENCHMARKS:
         bench_dir = criterion_dir / bench_name / framework_short
@@ -231,30 +264,37 @@ def parse_criterion_results(framework_dir: Path, framework_name: str) -> Dict[st
     return benchmark_results
 
 
-def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
+def run_framework_benchmarks(config: Dict[str, Any]) -> Dict[str, Any]:
     """Run binary and benchmarks for a single framework. Abort on any failure."""
+    framework_name = config["name"]
+    binary_name = config["binary"]
     framework_dir = Path(framework_name)
 
     if not framework_dir.exists():
         raise RuntimeError(f"Framework directory not found: {framework_dir}")
 
     print(f"\n{'='*60}")
-    print(f"Processing {framework_name}")
+    print(f"Processing {binary_name} (from {framework_name})")
     print(f"{'='*60}")
 
-    # Step 1: Run binary (cargo run --release) to generate convergence CSV
-    print(f"[1/2] Running {framework_name} binary...")
+    # Step 1: Run binary via cargo run (--release) to generate convergence CSV
+    print(f"[1/2] Running {binary_name} binary...")
     try:
         csv_output_path = framework_dir / "convergence_results.csv"
         cmd = [
-            f"target/release/{framework_name}",
-            "--output-csv",
-            str(csv_output_path),
+            "cargo",
+            "run",
+            "--release",
+            "-p",
+            framework_name,
         ]
+        if config["features"]:
+            cmd.extend(["--features", ",".join(config["features"])])
+        cmd.extend(["--", "--output-csv", str(csv_output_path)])
         run_command(cmd)
-        print(f"✓ {framework_name} binary completed")
+        print(f"✓ {binary_name} binary completed")
     except RuntimeError as e:
-        print(f"✗ Failed to run {framework_name} binary")
+        print(f"✗ Failed to run {binary_name} binary")
         raise
 
     # Step 2: Parse convergence CSV
@@ -275,8 +315,8 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     print(f"[3/3] Running Criterion benchmarks...")
     try:
         cmd = ["cargo", "bench", "-p", framework_name]
-        if framework_name == "burn-example":
-            cmd.extend(["--features", "ndarray"])
+        if config["features"]:
+            cmd.extend(["--features", ",".join(config["features"])])
         run_command(cmd)
         print(f"✓ Criterion benchmarks completed")
     except RuntimeError as e:
@@ -286,7 +326,7 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     # Step 4: Parse Criterion results
     print(f"[4/3] Parsing Criterion results...")
     try:
-        criterion_results = parse_criterion_results(framework_dir, framework_name)
+        criterion_results = parse_criterion_results(framework_dir, config)
         print(f"✓ Parsed Criterion results for {len(criterion_results)} benchmarks")
     except RuntimeError as e:
         print(f"✗ Failed to parse Criterion results")
@@ -294,6 +334,8 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
 
     return {
         "framework": framework_name,
+        "binary": binary_name,
+        "features": config["features"],
         "convergence": convergence_data,
         "benchmarks": criterion_results,
     }
@@ -353,12 +395,12 @@ def main():
     all_results = {}
 
     # Run benchmarks for each framework
-    for framework in FRAMEWORKS:
+    for config in FRAMEWORKS:
         try:
-            results = run_framework_benchmarks(framework)
-            all_results[framework] = results
+            results = run_framework_benchmarks(config)
+            all_results[config["binary"]] = results
         except RuntimeError as e:
-            print(f"\n✗ FATAL ERROR in {framework}:")
+            print(f"\n✗ FATAL ERROR in {config['binary']}:")
             print(f"  {str(e)}")
             print("\n✗ Full traceback:")
             traceback.print_exc()
@@ -382,14 +424,16 @@ def main():
         sys.exit(1)
 
     # Save framework results
-    for framework, results in all_results.items():
-        result_file = run_dir / f"{framework.replace('-example', '')}_results.json"
+    for binary_name, results in all_results.items():
+        # Convert binary name to result filename (remove -example suffix if present)
+        short_name = binary_name.replace("-example-", "-").replace("-example", "")
+        result_file = run_dir / f"{short_name}_results.json"
         try:
             with open(result_file, "w") as f:
                 json.dump(results, f, indent=2)
-            print(f"✓ Saved {framework} results to {result_file}")
+            print(f"✓ Saved {binary_name} results to {result_file}")
         except Exception as e:
-            print(f"✗ Failed to save {framework} results: {e}")
+            print(f"✗ Failed to save {binary_name} results: {e}")
             sys.exit(1)
 
     print(f"\n{'='*60}")
