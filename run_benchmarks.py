@@ -16,9 +16,7 @@ import traceback
 
 
 # Framework configurations
-# todo: use all benchmarks
-# FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
-FRAMEWORKS = ["tch-example"]
+FRAMEWORKS = ["burn-example", "tch-example", "candle-example"]
 RESULT_DIR = Path("results")
 CRITERION_BENCHMARKS = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
 
@@ -249,12 +247,7 @@ def run_framework_benchmarks(framework_name: str) -> Dict[str, Any]:
     try:
         csv_output_path = framework_dir / "convergence_results.csv"
         cmd = [
-            "cargo",
-            "run",
-            "--release",
-            "-p",
-            framework_name,
-            "--",
+            f"target/release/{framework_name}",
             "--output-csv",
             str(csv_output_path),
         ]
