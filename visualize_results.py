@@ -18,9 +18,10 @@ from plotly.subplots import make_subplots
 
 RESULT_DIR = Path("results")
 OUTPUT_DIR = Path("visualizations")
-FRAMEWORKS = ["burn", "tch", "candle"]
+FRAMEWORKS = ["burn-ndarray", "burn-simd", "tch", "candle"]
 FRAMEWORK_COLORS = {
-    "burn": "#E91E63",
+    "burn-ndarray": "#E91E63",
+    "burn-simd": "#E727F5",
     "tch": "#2196F3",
     "candle": "#FFC107",
 }
@@ -104,46 +105,184 @@ def plot_convergence_curves(results: Dict[str, Any]) -> go.Figure:
 
 
 def plot_inference_latency(results: Dict[str, Any]) -> go.Figure:
-    """Create inference latency comparison (predict_single and predict_many)."""
-    benchmarks = ["Predict_Single", "Predict_Many"]
+    """Create inference latency comparison with separate subplots for each benchmark."""
+    benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
     frameworks_list = list(results.keys())
 
-    # Create grouped bar chart
-    fig = go.Figure()
+    # Create subplots with separate y-axes for each benchmark
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=("Predict Single", "Predict Many", "Train Batch Step"),
+        specs=[
+            [{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]
+        ],
+    )
 
-    for framework in frameworks_list:
-        data = results[framework]
-        latencies_by_bench = []
+    for bench_idx, bench in enumerate(benchmarks):
+        col = bench_idx + 1
+        latencies_by_framework = []
 
-        for bench in benchmarks:
+        for framework in frameworks_list:
+            data = results[framework]
             if bench in data["benchmarks"]:
-                metrics = data["benchmarks"][bench]["metrics"]
-                if "mean" in metrics:
-                    latencies_by_bench.append(metrics["mean"]["estimate_ms"])
+                bench_data = data["benchmarks"][bench]
+
+                # Handle parametrized benchmarks (Train_Batch_Step)
+                if bench == "Train_Batch_Step":
+                    if "32" in bench_data:
+                        metrics = bench_data["32"]["metrics"]
+                        if "mean" in metrics:
+                            latencies_by_framework.append(
+                                metrics["mean"]["estimate_ms"]
+                            )
+                        else:
+                            latencies_by_framework.append(0)
+                    else:
+                        latencies_by_framework.append(0)
                 else:
-                    latencies_by_bench.append(0)
+                    # Non-parametrized benchmarks
+                    metrics = bench_data["metrics"]
+                    if "mean" in metrics:
+                        latencies_by_framework.append(metrics["mean"]["estimate_ms"])
+                    else:
+                        latencies_by_framework.append(0)
             else:
-                latencies_by_bench.append(0)
+                latencies_by_framework.append(0)
 
         fig.add_trace(
             go.Bar(
-                x=benchmarks,
-                y=latencies_by_bench,
-                name=framework.upper(),
-                marker=dict(color=FRAMEWORK_COLORS[framework]),
-            )
+                x=[f.upper() for f in frameworks_list],
+                y=latencies_by_framework,
+                name=bench,
+                marker=dict(color=[FRAMEWORK_COLORS[f] for f in frameworks_list]),
+                showlegend=False,
+            ),
+            row=1,
+            col=col,
         )
 
+    fig.update_xaxes(title_text="Framework", row=1, col=1)
+    fig.update_xaxes(title_text="Framework", row=1, col=2)
+    fig.update_xaxes(title_text="Framework", row=1, col=3)
+    fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
+    fig.update_yaxes(title_text="Latency (ms)", row=1, col=2)
+    fig.update_yaxes(title_text="Latency (ms)", row=1, col=3)
+
     fig.update_layout(
-        title="Inference Latency Comparison",
-        xaxis_title="Benchmark",
-        yaxis_title="Latency (ms)",
-        barmode="group",
+        title_text="Inference Latency Comparison",
         hovermode="x unified",
         template="plotly_white",
         font=dict(size=12),
         height=600,
-        width=900,
+        width=1600,
+    )
+
+    return fig
+
+
+def plot_inference_throughput(results: Dict[str, Any]) -> go.Figure:
+    """Create inference throughput comparison with separate subplots for each benchmark."""
+    benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
+    frameworks_list = list(results.keys())
+
+    # Sample counts and batch sizes
+    predict_single_samples = 1
+    predict_many_samples = 60000
+    train_batch_size = 256
+
+    # Create subplots with separate y-axes for each benchmark
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=(
+            "Predict Single (1 sample)",
+            "Predict Many (60k samples)",
+            "Train Batch Step (batch=256)",
+        ),
+        specs=[
+            [{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]
+        ],
+    )
+
+    for bench_idx, bench in enumerate(benchmarks):
+        col = bench_idx + 1
+        throughputs_by_framework = []
+
+        for framework in frameworks_list:
+            data = results[framework]
+            if bench in data["benchmarks"]:
+                bench_data = data["benchmarks"][bench]
+
+                # Handle parametrized benchmarks (Train_Batch_Step)
+                if bench == "Train_Batch_Step":
+                    if "256" in bench_data:
+                        metrics = bench_data["256"]["metrics"]
+                    elif "32" in bench_data:
+                        # Fall back to batch 32 if 256 not available
+                        metrics = bench_data["32"]["metrics"]
+                        train_batch_size = 32
+                    else:
+                        throughputs_by_framework.append(0)
+                        continue
+                else:
+                    metrics = bench_data["metrics"]
+
+                if "mean" in metrics:
+                    latency_ms = metrics["mean"]["estimate_ms"]
+
+                    # Calculate throughput based on benchmark type
+                    if bench == "Predict_Single":
+                        throughput = (
+                            (predict_single_samples * 1000.0) / latency_ms
+                            if latency_ms > 0
+                            else 0
+                        )
+                    elif bench == "Predict_Many":
+                        throughput = (
+                            (predict_many_samples * 1000.0) / latency_ms
+                            if latency_ms > 0
+                            else 0
+                        )
+                    else:  # Train_Batch_Step
+                        throughput = (
+                            (train_batch_size * 1000.0) / latency_ms
+                            if latency_ms > 0
+                            else 0
+                        )
+
+                    throughputs_by_framework.append(throughput)
+                else:
+                    throughputs_by_framework.append(0)
+            else:
+                throughputs_by_framework.append(0)
+
+        fig.add_trace(
+            go.Bar(
+                x=[f.upper() for f in frameworks_list],
+                y=throughputs_by_framework,
+                name=bench,
+                marker=dict(color=[FRAMEWORK_COLORS[f] for f in frameworks_list]),
+                showlegend=False,
+            ),
+            row=1,
+            col=col,
+        )
+
+    fig.update_xaxes(title_text="Framework", row=1, col=1)
+    fig.update_xaxes(title_text="Framework", row=1, col=2)
+    fig.update_xaxes(title_text="Framework", row=1, col=3)
+    fig.update_yaxes(title_text="Throughput (samples/sec)", row=1, col=1)
+    fig.update_yaxes(title_text="Throughput (samples/sec)", row=1, col=2)
+    fig.update_yaxes(title_text="Throughput (samples/sec)", row=1, col=3)
+
+    fig.update_layout(
+        title_text="Inference Throughput Comparison",
+        hovermode="x unified",
+        template="plotly_white",
+        font=dict(size=12),
+        height=600,
+        width=1600,
     )
 
     return fig
@@ -201,16 +340,27 @@ def plot_training_throughput(results: Dict[str, Any]) -> go.Figure:
 
 
 def plot_latency_distribution(results: Dict[str, Any]) -> go.Figure:
-    """Create latency distribution box plot using median_abs_dev."""
-    fig = go.Figure()
-
+    """Create latency distribution with separate subplots for each benchmark."""
     benchmarks = ["Predict_Single", "Predict_Many", "Train_Batch_Step"]
+    frameworks_list = list(results.keys())
 
-    for framework, data in results.items():
-        mad_values = []
-        benchmark_names = []
+    # Create subplots with separate y-axes for each benchmark
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=("Predict Single", "Predict Many", "Train Batch Step"),
+        specs=[
+            [{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]
+        ],
+    )
 
-        for bench in benchmarks:
+    for bench_idx, bench in enumerate(benchmarks):
+        col = bench_idx + 1
+
+        for framework in frameworks_list:
+            data = results[framework]
+            mad_values = []
+
             if bench in data["benchmarks"]:
                 bench_data = data["benchmarks"][bench]
 
@@ -223,7 +373,6 @@ def plot_latency_distribution(results: Dict[str, Any]) -> go.Figure:
                             mad = metrics["median_abs_dev"]["estimate_ms"]
                             if mad is not None:
                                 mad_values.append(mad)
-                                benchmark_names.append(bench.replace("_", "\n"))
                 else:
                     # Non-parametrized benchmarks
                     metrics = bench_data["metrics"]
@@ -231,28 +380,34 @@ def plot_latency_distribution(results: Dict[str, Any]) -> go.Figure:
                         mad = metrics["median_abs_dev"]["estimate_ms"]
                         if mad is not None:
                             mad_values.append(mad)
-                            benchmark_names.append(bench.replace("_", "\n"))
 
-        if mad_values:
-            fig.add_trace(
-                go.Bar(
-                    x=benchmark_names,
-                    y=mad_values,
-                    name=framework.upper(),
-                    marker=dict(color=FRAMEWORK_COLORS[framework]),
-                )
-            )
+                if mad_values:
+                    fig.add_trace(
+                        go.Bar(
+                            x=[framework.upper()],
+                            y=mad_values,
+                            name=framework.upper(),
+                            marker=dict(color=FRAMEWORK_COLORS[framework]),
+                            showlegend=False,
+                        ),
+                        row=1,
+                        col=col,
+                    )
+
+    fig.update_xaxes(title_text="Framework", row=1, col=1)
+    fig.update_xaxes(title_text="Framework", row=1, col=2)
+    fig.update_xaxes(title_text="Framework", row=1, col=3)
+    fig.update_yaxes(title_text="MAD (ms)", row=1, col=1)
+    fig.update_yaxes(title_text="MAD (ms)", row=1, col=2)
+    fig.update_yaxes(title_text="MAD (ms)", row=1, col=3)
 
     fig.update_layout(
         title="Latency Distribution: Median Absolute Deviation",
-        xaxis_title="Benchmark",
-        yaxis_title="MAD (ms)",
-        barmode="group",
         hovermode="x unified",
         template="plotly_white",
         font=dict(size=12),
         height=600,
-        width=900,
+        width=1600,
     )
 
     return fig
@@ -532,7 +687,7 @@ def save_figure(
 ):
     """Save figure in multiple formats."""
     if format_types is None:
-        format_types = ["html", "png"]
+        format_types = ["png"]
 
     for fmt in format_types:
         try:
@@ -591,6 +746,10 @@ def main():
         fig_latency = plot_inference_latency(results)
         save_figure(fig_latency, output_dir, "02_inference_latency")
 
+        # Inference throughput
+        fig_inf_throughput = plot_inference_throughput(results)
+        save_figure(fig_inf_throughput, output_dir, "02b_inference_throughput")
+
         # Training throughput
         fig_throughput = plot_training_throughput(results)
         save_figure(fig_throughput, output_dir, "03_training_throughput")
@@ -598,10 +757,6 @@ def main():
         # Latency distribution
         fig_distribution = plot_latency_distribution(results)
         save_figure(fig_distribution, output_dir, "04_latency_distribution")
-
-        # Confidence intervals
-        fig_ci = plot_confidence_intervals(results)
-        save_figure(fig_ci, output_dir, "05_confidence_intervals")
 
     except Exception as e:
         print(f"✗ Error generating plots: {e}")
