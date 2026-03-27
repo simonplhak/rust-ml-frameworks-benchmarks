@@ -13,7 +13,7 @@ criterion = "0.8.2"
 [features]
 default = []
 ndarray = ["burn/ndarray"]
-ndarray-blas-openblas = ["burn/ndarray", "burn/openblas-system"]
+ndarray-openblas = ["burn/ndarray", "burn/openblas-system"]
 ndarray-simd = ["burn/ndarray", "burn/simd"]
 
 
