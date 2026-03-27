@@ -18,8 +18,7 @@ from plotly.subplots import make_subplots
 
 RESULT_DIR = Path("results")
 OUTPUT_DIR = Path("visualizations")
-FRAMEWORKS = ["burn"]
-# FRAMEWORKS = ["burn", "tch", "candle"]
+FRAMEWORKS = ["burn", "tch", "candle"]
 FRAMEWORK_COLORS = {
     "burn": "#E91E63",
     "tch": "#2196F3",
