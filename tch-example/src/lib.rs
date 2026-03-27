@@ -133,19 +133,18 @@ impl RunableModel for TchRunner {
     fn train(&self, dataset: &Self::Dataset, epochs: usize) -> Self::Model {
         let device = Device::Cpu;
         let vs = nn::VarStore::new(device);
-        let model = self.model();
+        let model = Self::build_model(&vs.root(), device);
         let mut opt = nn::Adam::default()
             .build(&vs, self.config.learning_rate)
             .unwrap();
 
         for _ in 0..epochs {
             for (xs, ys) in dataset.train_iter(self.config.batch_size as i64).shuffle() {
-                let loss = model.model.forward(&xs).cross_entropy_for_logits(&ys);
+                let loss = model.forward(&xs).cross_entropy_for_logits(&ys);
                 opt.backward_step(&loss);
             }
         }
-
-        model
+        TchModel { model, device }
     }
 
     fn predict_single(&self, model: &Self::Model, x: &[f32]) -> usize {
