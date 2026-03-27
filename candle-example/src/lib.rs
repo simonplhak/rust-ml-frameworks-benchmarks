@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use candle_core::{DType, Device, IndexOp as _, Tensor, D};
-use candle_nn::{linear, loss, ops, Module, Optimizer as _, Sequential, VarBuilder, VarMap};
+use candle_core::{DType, Device, IndexOp as _, Tensor};
+use candle_nn::{linear, Module, Optimizer as _, Sequential, VarBuilder, VarMap};
 use common::{BenchmarkConfig, RunableModel, HIDDEN_SIZE_1, INPUT_DIM, OUTPUT_SIZE};
 
 pub struct CandleRunner {
