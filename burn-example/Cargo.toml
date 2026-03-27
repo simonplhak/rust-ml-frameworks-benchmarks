@@ -13,11 +13,8 @@ criterion = "0.8.2"
 [features]
 default = []
 ndarray = ["burn/ndarray"]
-ndarray-blas-accelerate = ["burn/ndarray", "burn/accelerate"]
-ndarray-blas-netlib = ["burn/ndarray", "burn/blas-netlib"]
 ndarray-blas-openblas = ["burn/ndarray", "burn/openblas-system"]
 ndarray-simd = ["burn/ndarray", "burn/simd"]
-tch-cpu = ["burn/tch"]
 
 
 [[bench]]
