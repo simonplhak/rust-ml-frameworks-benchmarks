@@ -57,6 +57,9 @@ COPY ./tch-example ./tch-example
 COPY ./common ./common
 COPY ./run_benchmarks.py .
 
+# todo: move to other env variables
+ENV LD_LIBRARY_PATH=/app/libtorch/lib
+
 RUN cargo build --release --workspace
 
 ENTRYPOINT ["uv", "run", "/app/run_benchmarks.py"]
